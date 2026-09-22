@@ -2,7 +2,10 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05060f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Neon Breakout</title>
 <style>
 :root{
@@ -15,7 +18,7 @@
   --dim:#5a6b95;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%}
+html,body{height:100%;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 body{
   background:
     radial-gradient(1100px 620px at 50% -10%, rgba(0,229,255,.07), transparent 60%),
@@ -26,7 +29,11 @@ body{
   display:flex;align-items:center;justify-content:center;
   min-height:100vh;overflow:hidden;
 }
-#stage{display:flex;flex-direction:column;gap:10px;width:min(94vw,940px)}
+#stage{
+  display:flex;flex-direction:column;gap:10px;
+  width:min(94vw,940px,calc((100vh - 132px)*1.5));
+  width:min(94vw,940px,calc((100svh - 132px)*1.5));
+}
 .hud{
   display:flex;justify-content:space-between;align-items:center;
   padding:0 8px;letter-spacing:.18em;font-size:13px;color:var(--dim);text-transform:uppercase;
@@ -74,6 +81,22 @@ canvas{display:block;width:100%;height:auto;aspect-ratio:3/2;cursor:none}
   font-size:11px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;
 }
 .footer kbd{font-family:inherit;color:var(--cyan);border:1px solid rgba(0,229,255,.35);border-radius:5px;padding:1px 6px;margin:0 2px}
+@media (max-width:600px){
+  .hud{font-size:11px;letter-spacing:.1em}
+  #lives{margin-left:8px}
+  .footer{font-size:9px;letter-spacing:.08em}
+}
+#pauseBtn{
+  position:absolute;top:10px;right:10px;z-index:5;
+  width:44px;height:44px;border-radius:10px;
+  background:rgba(5,8,20,.55);
+  border:1px solid rgba(0,229,255,.35);
+  color:var(--cyan);font-size:17px;font-family:inherit;
+  display:flex;align-items:center;justify-content:center;
+  backdrop-filter:blur(4px);
+  -webkit-tap-highlight-color:transparent;
+}
+#pauseBtn:active{background:rgba(0,229,255,.25)}
 </style>
 </head>
 <body>
@@ -87,6 +110,7 @@ canvas{display:block;width:100%;height:auto;aspect-ratio:3/2;cursor:none}
     <canvas id="game"></canvas>
     <div class="scanlines"></div>
     <div class="overlay" id="overlay"></div>
+    <button id="pauseBtn" aria-label="Pausa">&#10074;&#10074;</button>
   </div>
   <div class="footer">
     <span>&larr; &rarr; / mouse: muovi &middot; <kbd>SPAZIO</kbd>: lancia &middot; <kbd>P</kbd>: pausa &middot; <kbd>M</kbd>: audio</span>
@@ -122,12 +146,19 @@ function resize(){
   canvas.width=Math.max(1,Math.round(r.width*dpr));
   canvas.height=Math.max(1,Math.round(r.height*dpr));
   ctx.setTransform(canvas.width/W,0,0,canvas.height/H,0,0);
+  const compact=r.width<560;
+  if(compact!==(CFG.compact||false)){
+    CFG.compact=compact;
+    CFG.paddleW=compact?150:120;
+    CFG.ballR=compact?9:8;
+    for(const b of balls)b.r=CFG.ballR;
+  }
 }
 window.addEventListener('resize',resize);
 /* ================= dom ================= */
 const $=id=>document.getElementById(id);
 const el={score:$('score'),level:$('level'),hi:$('hi'),lives:$('lives'),combo:$('combo'),
-  overlay:$('overlay'),mute:$('muteState'),frame:$('frame')};
+  overlay:$('overlay'),mute:$('muteState'),frame:$('frame'),pause:$('pauseBtn')};
 const HI_KEY='neonBreakoutHigh';
 /* ================= config ================= */
 const CFG={
@@ -656,7 +687,7 @@ function render(){
     ctx.fillStyle='#9fd8ff';
     ctx.font='600 15px ui-monospace,Menlo,monospace';
     ctx.textAlign='center';
-    ctx.fillText('SPAZIO o CLIC per lanciare',W/2,paddle.y-40);
+    ctx.fillText(IS_TOUCH?'TOCCA per lanciare':'SPAZIO o CLIC per lanciare',W/2,paddle.y-40);
     ctx.globalAlpha=1;
   }
   ctx.fillStyle=vign;
@@ -707,6 +738,7 @@ function updateHUD(){
   if(hudCache.cb!==cb){el.combo.textContent=cb;el.combo.style.opacity=cb?1:0;hudCache.cb=cb;}
 }
 /* ================= input ================= */
+const IS_TOUCH=('ontouchstart' in window)||navigator.maxTouchPoints>0;
 function primaryAction(){
   initAudio();
   if(S.mode==='menu')startGame();
@@ -738,15 +770,23 @@ el.frame.addEventListener('mousedown',()=>{
   initAudio();
   primaryAction();
 });
-canvas.addEventListener('touchmove',e=>{
+el.frame.addEventListener('touchmove',e=>{
   e.preventDefault();
   mouseTarget=pointerX(e.touches[0].clientX);
 },{passive:false});
-canvas.addEventListener('touchstart',e=>{
+el.frame.addEventListener('touchstart',e=>{
+  e.preventDefault();
   initAudio();
   mouseTarget=pointerX(e.touches[0].clientX);
   primaryAction();
-},{passive:true});
+},{passive:false});
+el.pause.addEventListener('mousedown',e=>e.stopPropagation());
+el.pause.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();},{passive:false});
+el.pause.addEventListener('click',e=>{
+  e.stopPropagation();
+  initAudio();
+  if(S.mode==='playing'||S.mode==='pause')togglePause();
+});
 /* ================= loop principale ================= */
 S.flash=null;
 S.toast=null;
